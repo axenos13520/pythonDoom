@@ -1,21 +1,14 @@
 from enum import Enum
-from random import randint
 import math
-from screeninfo import get_monitors
 import pygame as pg
+from pygame.math import clamp
 import colors
-
-monitor = get_monitors()[0]
 
 pg.init()
 
 pg.display.set_caption("test")
 
 windowSize = [1000, 700]
-windowPosition = [
-    (monitor.width - windowSize[0]) / 2,
-    (monitor.height - windowSize[1]) / 2,
-]
 
 screen = pg.display.set_mode(windowSize)
 
@@ -48,6 +41,64 @@ def findQuarter(point1, point2):
         return 1 if point2[0] > point1[0] else 2
     else:
         return 4 if point2[0] > point1[0] else 3
+
+
+def rectangle(topLeft, bottomRight, color):
+    top = topLeft[1]
+    left = topLeft[0]
+    bottom = bottomRight[1]
+    right = bottomRight[0]
+
+    position = [(left + right) / 2, (top + bottom) / 2]
+    diag = math.sqrt((right - left) ** 2 + (bottom - top) ** 2)
+
+    def func(point, tg):
+        resultPoint = []
+
+        if point[0] < left:
+            y = (left - point[0]) * tg + point[1]
+
+            if top <= y <= bottom:
+                resultPoint = [left, y]
+        elif point[0] > right:
+            y = (right - point[0]) * tg + point[1]
+
+            if top <= y <= bottom:
+                resultPoint = [right, y]
+        if point[1] < top:
+            x = (top - point[1]) / tg + point[0]
+
+            if left <= x <= right:
+                resultPoint = [x, top]
+        elif point[1] > bottom:
+            x = (bottom - point[1]) / tg + point[0]
+
+            if left <= x <= right:
+                resultPoint = [x, bottom]
+
+        if len(resultPoint) == 0:
+            return False
+
+        if resultPoint[0] == left or resultPoint[0] == right:
+            mult = bottom - top - abs(resultPoint[1] - position[1])
+
+            if mult <= 3:
+                mult = 1 - (mult / 3)
+            else:
+                mult = 1
+
+        else:
+            mult = 1 - abs(resultPoint[0] - position[0]) / (right - left) / 5
+        return [
+            resultPoint,
+            [
+                clamp(color[0] * mult, 0, 255),
+                clamp(color[1] * mult, 0, 255),
+                clamp(color[2] * mult, 0, 255),
+            ],
+        ]
+
+    objectFuncs.append(func)
 
 
 def square(position, size, color):
@@ -84,13 +135,15 @@ def square(position, size, color):
         if len(resultPoint) == 0:
             return False
 
-        return [resultPoint, color]
+        mult = 1 - distance(resultPoint, position) / size * 0.3
+
+        return [resultPoint, [color[0] * mult, color[1] * mult, color[2] * mult]]
 
     objectFuncs.append(func)
 
 
 def ray(point, angle, maxDistance):
-    tg = math.tan(angle) + 0.001
+    tg = math.tan(angle)
 
     p = [
         point[0] + math.cos(angle) * maxDistance,
@@ -133,23 +186,6 @@ pressedKeys = []
 
 def getKey(key):
     return key in pressedKeys
-
-
-for i in range(50):
-    square(
-        [randint(-100, 100), randint(-100, 100)],
-        randint(3, 9),
-        (randint(0, 255), randint(0, 255), randint(0, 255)),
-    )
-
-
-# square([400, 250], 50)
-
-cameraPosition = [0, 0]
-cameraRotation = 0
-
-cameraSpeed = 50
-cameraRotationSpeed = 1.5
 
 
 def Update():
@@ -202,9 +238,11 @@ def DrawFrame():
         intersection = ray(cameraPosition, normalizeAngle(angle), drawDistance)
 
         if intersection:
-            height = 20000 / intersection[0]
+            dist = intersection[0] * math.cos(step * (abs(rayCount / 2 - i)))
 
-            d = 1 - intersection[0] / drawDistance
+            height = 20000 / dist
+
+            d = 1 - dist / drawDistance
             d = d**3
 
             intersection[1] = [
@@ -217,18 +255,88 @@ def DrawFrame():
                 screen,
                 intersection[1],
                 pg.Rect(
-                    i * rayWidth, windowSize[1] * 0.6 - height / 2, rayWidth, height
+                    i * rayWidth,
+                    windowSize[1] * 0.6 - height / 16,
+                    rayWidth,
+                    height / 8,
                 ),
             )
         angle += step
 
-    fpsText = font.render(f"{clock.get_fps():.0f}", True, colors.black)
+    fpsText = font.render(
+        f"{clock.get_fps():.0f}",
+        True,
+        colors.black,
+    )
 
     fpsTextRect = fpsText.get_rect()
 
     screen.blit(fpsText, fpsTextRect)
 
     pg.display.flip()
+
+
+mapRows = [
+    ".------.",
+    "|......|",
+    ".--.---.",
+    "|......|",
+    "|..+...|",
+    "|......|",
+    "|......|",
+    ".------.",
+]
+
+mapSize = 5
+mapSizeHalf = mapSize / 2
+
+cameraSpeed = 5
+cameraRotationSpeed = 1.5
+
+cameraPosition = [0, 0]
+cameraRotation = 0
+
+obtained = []
+
+for y in range(len(mapRows)):
+    for x in range(len(mapRows[y])):
+        if mapRows[y][x] == "+":
+            cameraPosition = [x * mapSize + mapSizeHalf, y * mapSize + mapSizeHalf]
+        elif [x, y] not in obtained:
+            topLeft = []
+            bottomRight = []
+
+            current = mapRows[y][x]
+
+            if current == "-":
+                curX = x
+                while current == "-":
+                    bottomRight = [
+                        curX * mapSize + mapSizeHalf,
+                        y * mapSize + mapSizeHalf,
+                    ]
+
+                    curX += 1
+                    current = mapRows[y][curX]
+
+                    obtained.append([curX, y])
+            elif current == "|":
+                curY = y
+                while current == "|":
+                    bottomRight = [
+                        x * mapSize + mapSizeHalf,
+                        curY * mapSize + mapSizeHalf,
+                    ]
+
+                    curY += 1
+                    current = mapRows[curY][x]
+
+                    obtained.append([x, curY])
+
+            if len(bottomRight) > 0:
+                topLeft = [x * mapSize - mapSizeHalf, y * mapSize - mapSizeHalf]
+
+                rectangle(topLeft, bottomRight, colors.gray)
 
 
 running = True
